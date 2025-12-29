@@ -32,11 +32,11 @@ chi31_ex = u3_ex.diff(x, 1)
 chi32_ex = u3_ex.diff(y, 1)
 chi33_ex = u3_ex.diff(z, 1)
 
-# divu = chi11_ex + chi22_ex + chi33_ex
-# print(f"div: {divu}")
-# 
-# integ = sp.integrate(p_ex, (x, 0, 1), (y, 0, 1), (z, 0, 1.1))
-# print(f"integ: {integ}")
+divu = chi11_ex + chi22_ex + chi33_ex
+print(f"div: {divu}")
+
+integ = sp.integrate(p_ex, (x, 0, 1), (y, 0, 1), (z, 0, 1.1))
+print(f"integ: {integ}")
 
 sigma11_ex = mu_val * chi11_ex - 1/2 * u1_ex * u1_ex - p_ex
 sigma12_ex = mu_val * chi12_ex - 1/2 * u1_ex * u2_ex
@@ -44,20 +44,20 @@ sigma13_ex = mu_val * chi13_ex - 1/2 * u1_ex * u3_ex
 sigma21_ex = mu_val * chi21_ex - 1/2 * u2_ex * u1_ex
 sigma22_ex = mu_val * chi22_ex - 1/2 * u2_ex * u2_ex - p_ex
 sigma23_ex = mu_val * chi23_ex - 1/2 * u2_ex * u3_ex
-sigma31_ex = mu_val * chi21_ex - 1/2 * u2_ex * u1_ex
-sigma32_ex = mu_val * chi22_ex - 1/2 * u2_ex * u2_ex
-sigma33_ex = mu_val * chi23_ex - 1/2 * u2_ex * u3_ex - p_ex
+sigma31_ex = mu_val * chi31_ex - 1/2 * u3_ex * u1_ex
+sigma32_ex = mu_val * chi32_ex - 1/2 * u3_ex * u2_ex
+sigma33_ex = mu_val * chi33_ex - 1/2 * u3_ex * u3_ex - p_ex
 
 
-f1 = - mu_val * (u1_ex.diff(x, 2) + u1_ex.diff(y, 2)) + u1_ex.diff(z, 2) \
+f1 = - mu_val * (u1_ex.diff(x, 2) + u1_ex.diff(y, 2) + u1_ex.diff(z, 2)) \
         + u1_ex.diff(x, 1) * u1_ex + u1_ex.diff(y, 1) * u2_ex + u1_ex.diff(z, 1) * u3_ex \
         + p_ex.diff(x, 1)
 
-f2 = - mu_val * (u2_ex.diff(x, 2) + u2_ex.diff(y, 2)) + u2_ex.diff(z, 2) \
+f2 = - mu_val * (u2_ex.diff(x, 2) + u2_ex.diff(y, 2) + u2_ex.diff(z, 2)) \
         + u2_ex.diff(x, 1) * u1_ex + u2_ex.diff(y, 1) * u2_ex + u2_ex.diff(z, 1) * u3_ex \
         + p_ex.diff(y, 1)
 
-f3 = - mu_val * (u3_ex.diff(x, 2) + u3_ex.diff(y, 2)) + u3_ex.diff(z, 2) \
+f3 = - mu_val * (u3_ex.diff(x, 2) + u3_ex.diff(y, 2) + u3_ex.diff(z, 2)) \
         + u3_ex.diff(x, 1) * u1_ex + u3_ex.diff(y, 1) * u2_ex + u3_ex.diff(z, 1) * u3_ex \
         + p_ex.diff(z, 1)
 
@@ -98,11 +98,14 @@ def build_RT_tensor(components):
     tensor = as_tensor([components[0], components[1], components[2]])
     return tensor
 
+def L2_norm(f):
+    return np.sqrt(assemble(f**2 * dx))
+
 def L4_vector_norm(f):
     return np.pow(assemble(sum(f[i]**4 for i in range(3)) * dx(metadata={"quadrature_degree": 5})), 1/4)
 
 def L2_tensor_norm(f):
-    return np.sqrt(assemble(inner(f, f) * dx(metadata={"quadrature_degree": 1})))
+    return np.sqrt(assemble(inner(f, f) * dx(metadata={"quadrature_degree": 5})))
 
 def Hdiv43_tensor_norm(f):
     norm = L2_tensor_norm(f)
@@ -179,20 +182,20 @@ def solve_variational_problem(mesh):
     sol = Function(Xh)
 
 
-
     # PICARD ITERATIONS
 
     its = 0
     tol = 1e-12
     tol_c = tol + 1
 
-    u_vec_sol = sigma_sol_comps = u_sol = chi_sol_comps = xi_sol = None
+    u_vec_sol = sigma_sol_comps = u_sol = chi_sol_comps = None
 
     while its < 30 and tol_c > tol:
-        solve(AA == FF, sol, solver_parameters = {'linear_solver':'umfpack'})
+        # solve(AA == FF, sol, solver_parameters = {'linear_solver':'umfpack'})
+        solve(AA == FF, sol, solver_parameters = {'linear_solver':'mumps'})
 
         (u_vec_sol, sigma_sol_comps)    = sol.split(deepcopy=True)
-        (u_sol, chi_sol_comps, xi_sol)  = u_vec_sol.split(deepcopy=True)
+        (u_sol, chi_sol_comps, _)  = u_vec_sol.split(deepcopy=True)
 
         tol_c = L4_vector_norm(u_sol - z) / L4_vector_norm(u_sol)
 
@@ -211,24 +214,22 @@ def solve_variational_problem(mesh):
     chi_sol = build_trace_free_tensor(split(chi_sol_comps))
     chi_sol = project(chi_sol, tensor_V)
 
-    # meas = assemble(Constant(1) * dx(mesh))
-    meas = Constant(1)
+    meas = assemble(Constant(1) * dx(mesh))
+    # meas = Constant(1)
 
-    sigma_full_sol = sigma_sol - (1/(4*meas) * assemble(dot(u_sol, u_sol) * dx)) * Identity(3)
+    sigma_full_sol = sigma_sol - (1/(6*meas) * assemble(dot(u_sol, u_sol) * dx)) * Identity(3)
     sigma_full_sol = project(sigma_full_sol, tensor_V)
 
-    p_sol = -1/2 * tr(sigma_full_sol + 1/2 * outer(u_sol, u_sol))
+    p_sol = -1/3 * tr(sigma_full_sol + 1/2 * outer(u_sol, u_sol))
     p_sol = project(p_sol, V)
     
 
     # ERROR CALCULATIONS
 
     err_u       = L4_vector_norm(u_sol - u_ex)
-    err_p       = np.sqrt(assemble((p_sol - p_ex)**2 * dx))
-    # err_chi     = L2_tensor_norm(chi_sol - chi_ex)
-    err_chi     = 1
-    # err_sigma   = L2_tensor_norm(sigma_full_sol - sigma_ex)
-    err_sigma   = 1
+    err_p       = L2_norm(p_sol - p_ex)
+    err_chi     = L2_tensor_norm(chi_sol - chi_ex)
+    err_sigma   = L2_tensor_norm(sigma_full_sol - sigma_ex)
 
     return u_sol, chi_sol, sigma_full_sol, p_sol, err_u, err_chi, err_sigma, err_p, dim, its
 
@@ -254,8 +255,7 @@ if __name__ == "__main__":
 
     u =  chi = sigma = p = None
 
-    # NN = [4, 8, 16, 32]
-    NN = [4]
+    NN = [2, 4, 8, 12]
     for N in NN:
         print(f"N = {N}")
 

@@ -65,17 +65,20 @@ def build_RT_tensor(components):
     tensor = as_tensor([components[0], components[1]])
     return tensor
 
+def L2_norm(f):
+    return np.sqrt(assemble(f**2 * dx))
+
 def L4_vector_norm(f):
-    return np.pow(assemble(sum(f[i]**4 for i in range(2)) * dx), 1/4)
+    return np.pow(assemble(sum(f[i]**4 for i in range(2)) * dx(metadata={"quadrature_degree": 5})), 1/4)
 
 def L2_tensor_norm(f):
-    return np.sqrt(assemble(inner(f, f) * dx))
+    return np.sqrt(assemble(inner(f, f) * dx(metadata={"quadrature_degree": 5})))
 
 def Hdiv43_tensor_norm(f):
     norm = L2_tensor_norm(f)
 
     divf = div(f)
-    norm += np.pow(assemble(sum(divf[i]**(4/3) for i in range(2)) * dx), 3/4)
+    norm += np.pow(assemble(sum(divf[i]**(4/3) for i in range(2)) * dx(metadata={"quadrature_degree": 5})), 3/4)
 
     return norm
 
@@ -190,7 +193,7 @@ def solve_variational_problem(mesh):
     # ERROR CALCULATIONS
 
     err_u       = L4_vector_norm(u_sol - u_ex)
-    err_p       = np.sqrt(assemble((p_sol - p_ex)**2 * dx))
+    err_p       = L2_norm(p_sol - p_ex)
     err_chi     = L2_tensor_norm(chi_sol - chi_ex)
     err_sigma   = L2_tensor_norm(sigma_full_sol - sigma_ex)
 
